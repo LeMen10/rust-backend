@@ -18,16 +18,21 @@ use actix_web::body::BoxBody;
 use serde::{ Serialize, Deserialize };
 
 use std::fmt::Display;
-use std::sync::Mutex;
+// use std::sync::Mutex;
+use deadpool_postgres::{Pool, Client};
+mod db;
+use db::config_db::configure_db_pool;
+
+
 
 #[derive(Serialize, Deserialize)]
-struct Ticket {
-    id: u32,
+struct User {
+    id: i32,
     author: String,
 }
 
 // Implement Responder Trait for Ticket
-impl Responder for Ticket {
+impl Responder for User {
     type Body = BoxBody;
 
     fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
@@ -40,7 +45,7 @@ impl Responder for Ticket {
 
 #[derive(Debug, Serialize)]
 struct ErrNoId {
-    id: u32,
+    id: i32,
     err: String,
 }
 
@@ -65,132 +70,117 @@ impl Display for ErrNoId {
 }
 
 struct AppState {
-    tickets: Mutex<Vec<Ticket>>,
+    db_pool: Pool
 }
 
-// Create a ticket
-#[post("/tickets")]
-async fn post_ticket(req: web::Json<Ticket>, data: web::Data<AppState>) -> impl Responder {
-    let new_ticket = Ticket {
-        id: req.id,
-        author: String::from(&req.author),
-    };
 
-    let mut tickets = data.tickets.lock().unwrap();
+#[post("/add-user")]
+async fn post_ticket(data: web::Data<AppState>, user: web::Json<User>) -> impl Responder {
+    let client: Client = data.db_pool.get().await.unwrap();
 
-    let response = serde_json::to_string(&new_ticket).unwrap();
+    let stmt = client.prepare("INSERT INTO users (id, author) VALUES ($1, $2)").await.unwrap();
 
-    tickets.push(new_ticket);
-    HttpResponse::Created().content_type(ContentType::json()).body(response)
+    match client.execute(&stmt, &[&user.id, &user.author]).await {
+        Ok(_) => HttpResponse::Created().finish(),
+        Err(err) => {
+            eprintln!("Error inserting ticket: {:?}", err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
 }
 
-// Get all tickets
-#[get("/tickets")]
+#[get("/users")]
 async fn get_tickets(data: web::Data<AppState>) -> impl Responder {
-    let tickets = data.tickets.lock().unwrap();
+    let client: Client = data.db_pool.get().await.unwrap();
+    let stmt = client.prepare("SELECT id, author FROM users").await.unwrap();
 
-    let response = serde_json::to_string(&*tickets).unwrap();
+    let rows = client.query(&stmt, &[]).await.unwrap();
 
+    let tickets: Vec<_> = rows.into_iter().map(|row| {
+        serde_json::json!({
+            "id": row.get::<_, i32>(0),
+            "author": row.get::<_, String>(1),
+        })
+    }).collect();
+
+    let response = serde_json::to_string(&tickets).unwrap();
     HttpResponse::Ok().content_type(ContentType::json()).body(response)
 }
 
 // Get a ticket with the corresponding id
-#[get("/tickets/{id}")]
-async fn get_ticket(id: web::Path<u32>, data: web::Data<AppState>) -> Result<Ticket, ErrNoId> {
-    let ticket_id: u32 = *id;
-    let tickets = data.tickets.lock().unwrap();
+#[get("/user/{id}")]
+async fn get_ticket(id: web::Path<i32>, data: web::Data<AppState>) -> Result<HttpResponse, ErrNoId> {
+    let client: Client = data.db_pool.get().await.unwrap();
+    let stmt = client.prepare("SELECT id, author FROM users WHERE id = $1").await.unwrap();
 
-    let ticket: Vec<_> = tickets
-        .iter()
-        .filter(|x| x.id == ticket_id)
-        .collect();
+    let rows = client.query(&stmt, &[&*id]).await.unwrap();
 
-    if !ticket.is_empty() {
-        Ok(Ticket {
-            id: ticket[0].id,
-            author: String::from(&ticket[0].author),
-        })
+    if let Some(row) = rows.get(0) {
+        let ticket = serde_json::json!({
+            "id": row.get::<_, i32>(0),
+            "author": row.get::<_, String>(1),
+        });
+        let response = serde_json::to_string(&ticket).unwrap();
+        Ok(HttpResponse::Ok().content_type(ContentType::json()).body(response))
     } else {
-        let response = ErrNoId {
-            id: ticket_id,
+        Err(ErrNoId {
+            id: *id,
             err: String::from("ticket not found"),
-        };
-        Err(response)
+        })
     }
 }
 
 // Update the ticket with the corresponding id
-#[put("/tickets/{id}")]
-async fn update_ticket(
-    id: web::Path<u32>,
-    req: web::Json<Ticket>,
-    data: web::Data<AppState>
-) -> Result<HttpResponse, ErrNoId> {
-    let ticket_id: u32 = *id;
+#[put("/user/{id}")]
+async fn update_ticket(id: web::Path<i32>, data: web::Data<AppState>) -> Result<HttpResponse, ErrNoId> {
+    let client: Client = data.db_pool.get().await.unwrap();
 
-    let new_ticket = Ticket {
-        id: req.id,
-        author: String::from(&req.author),
-    };
+    let stmt = client.prepare("UPDATE users SET author = $1 WHERE id = $2").await.unwrap();
+    let result = client.execute(&stmt, &[&"Updated Author", &*id]).await.unwrap();
 
-    let mut tickets = data.tickets.lock().unwrap();
-
-    let id_index = tickets.iter().position(|x| x.id == ticket_id);
-
-    match id_index {
-        Some(id) => {
-            let response = serde_json::to_string(&new_ticket).unwrap();
-            tickets[id] = new_ticket;
-            Ok(HttpResponse::Ok().content_type(ContentType::json()).body(response))
-        }
-        None => {
-            let response = ErrNoId {
-                id: ticket_id,
-                err: String::from("ticket not found"),
-            };
-            Err(response)
-        }
+    if result > 0 {
+        let updated_ticket = serde_json::json!({
+            "id": *id,
+            "author": "Updated Author",
+        });
+        let response = serde_json::to_string(&updated_ticket).unwrap();
+        Ok(HttpResponse::Ok().content_type(ContentType::json()).body(response))
+    } else {
+        Err(ErrNoId {
+            id: *id,
+            err: String::from("ticket not found"),
+        })
     }
 }
 
 // Delete the ticket with the corresponding id
-#[delete("/tickets/{id}")]
-async fn delete_ticket(id: web::Path<u32>, data: web::Data<AppState>) -> Result<Ticket, ErrNoId> {
-    let ticket_id: u32 = *id;
-    let mut tickets = data.tickets.lock().unwrap();
+#[delete("/user/{id}")]
+async fn delete_ticket(id: web::Path<i32>, data: web::Data<AppState>) -> Result<HttpResponse, ErrNoId> {
+    let client: Client = data.db_pool.get().await.unwrap();
 
-    let id_index = tickets.iter().position(|x| x.id == ticket_id);
+    let stmt = client.prepare("DELETE FROM users WHERE id = $1 RETURNING id, author").await.unwrap();
+    let rows = client.query(&stmt, &[&*id]).await.unwrap();
 
-    match id_index {
-        Some(id) => {
-            let deleted_ticket = tickets.remove(id);
-            Ok(deleted_ticket)
-        }
-        None => {
-            let response = ErrNoId {
-                id: ticket_id,
-                err: String::from("ticket not found"),
-            };
-            Err(response)
-        }
+    if let Some(row) = rows.get(0) {
+        let deleted_ticket = serde_json::json!({
+            "id": row.get::<_, i32>(0),
+            "author": row.get::<_, String>(1),
+        });
+        let response = serde_json::to_string(&deleted_ticket).unwrap();
+        Ok(HttpResponse::Ok().content_type(ContentType::json()).body(response))
+    } else {
+        Err(ErrNoId {
+            id: *id,
+            err: String::from("ticket not found"),
+        })
     }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let pool = configure_db_pool().await;
     let app_state = web::Data::new(AppState {
-        tickets: Mutex::new(
-            vec![
-                Ticket {
-                    id: 1,
-                    author: String::from("Jane Doe"),
-                },
-                Ticket {
-                    id: 2,
-                    author: String::from("Patrick Star"),
-                }
-            ]
-        ),
+        db_pool: pool
     });
 
     HttpServer::new(move || {
@@ -205,32 +195,3 @@ async fn main() -> std::io::Result<()> {
         .bind(("127.0.0.1", 8000))?
         .run().await
 }
-
-// use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
-
-// #[get("/")]
-// async fn hello() -> impl Responder {
-//     HttpResponse::Ok().body("Hello world!")
-// }
-
-// #[post("/echo")]
-// async fn echo(req_body: String) -> impl Responder {
-//     HttpResponse::Ok().body(req_body)
-// }
-
-// async fn manual_hello() -> impl Responder {
-//     HttpResponse::Ok().body("Hey there!")
-// }
-
-// #[actix_web::main]
-// async fn main() -> std::io::Result<()> {
-//     HttpServer::new(|| {
-//         App::new()
-//             .service(hello)
-//             .service(echo)
-//             .route("/hey", web::get().to(manual_hello))
-//     })
-//     .bind(("127.0.0.1", 8080))?
-//     .run()
-//     .await
-// }
