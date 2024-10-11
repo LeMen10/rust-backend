@@ -1,6 +1,9 @@
 {
     "cSpell.words": [
         "actix",
-        "serde"
+        "dbname",
+        "deadpool",
+        "serde",
+        "sqlx"
     ]
 }
