@@ -22,14 +22,10 @@ use std::fmt::Display;
 use deadpool_postgres::{Pool, Client};
 mod db;
 use db::config_db::configure_db_pool;
+mod model;
+use model::user::User;
 
 
-
-#[derive(Serialize, Deserialize)]
-struct User {
-    id: i32,
-    author: String,
-}
 
 // Implement Responder Trait for Ticket
 impl Responder for User {
