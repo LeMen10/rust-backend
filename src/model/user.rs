@@ -1,7 +1,13 @@
-use serde::{ Serialize, Deserialize };
+use serde::{Serialize};
 
-#[derive(Serialize, Deserialize)]
-pub struct User {
-    pub id: i32,
-    pub author: String,
+#[derive(Serialize)]
+struct User {
+    id: String,
+    username: String,
+    fullname: String,
+    password: String,
+    email: String,
+    phone_number: String,
+    role: String,
+    is_active: String,
 }
