@@ -1,0 +1,17 @@
+{
+    "cSpell.words": [
+        "actix",
+        "chrono",
+        "dbname",
+        "deadpool",
+        "dotenv",
+        "dotenvy",
+        "ecommerce",
+        "erole",
+        "estatus",
+        "fullname",
+        "Insertable",
+        "serde",
+        "sqlx"
+    ]
+}
