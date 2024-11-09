@@ -1,7 +1,9 @@
 {
     "cSpell.words": [
         "actix",
+        "categoryid",
         "chrono",
+        "createdat",
         "dbname",
         "deadpool",
         "dotenv",
@@ -11,7 +13,10 @@
         "estatus",
         "fullname",
         "Insertable",
+        "maxprice",
+        "minprice",
         "serde",
-        "sqlx"
+        "sqlx",
+        "updatedat"
     ]
 }
