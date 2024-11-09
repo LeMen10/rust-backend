@@ -1,6 +1,7 @@
 use actix_web::{web, App, HttpServer};
 use db::config_db::configure_db_pool;
 use router::user::configure_user_routes;
+use router::product::configure_product_routes;
 #[macro_use]
 extern crate diesel;
 
@@ -19,6 +20,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(app_state.clone())
             .configure(configure_user_routes)
+            .configure(configure_product_routes)
     })
     .bind(("127.0.0.1", 8000))?
     .run()

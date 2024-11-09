@@ -1,9 +1,9 @@
 use crate::db::config_db::DbPool;
 use crate::model::user::CreateUser;
+use actix_web::{web, Error, HttpResponse};
 use crate::service::user_service::{
     create_new_user, delete_user_service, get_all_users, update_user_service,
 };
-use actix_web::{web, Error, HttpResponse};
 
 pub async fn get_users(pool: web::Data<DbPool>) -> Result<HttpResponse, Error> {
     let mut conn = pool.get().map_err(|_| {
