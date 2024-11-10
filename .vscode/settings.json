@@ -17,6 +17,7 @@
         "minprice",
         "serde",
         "sqlx",
-        "updatedat"
+        "updatedat",
+        "vouchertype"
     ]
 }
