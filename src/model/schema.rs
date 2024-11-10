@@ -40,3 +40,16 @@ table! {
         updatedat -> Timestamp,
     }
 }
+
+table! {
+    voucher (id) {
+        id -> Int4,
+        name -> Varchar,
+        description -> Varchar,
+        vouchertype -> Varchar,
+        value -> Float8,
+        quantity -> Int4,
+        createdat -> Timestamp,
+        updatedat -> Timestamp,
+    }
+}
